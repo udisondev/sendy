@@ -1,0 +1,35 @@
+# Binaries
+bin/
+
+# Data directories
+.sendy/
+*.db
+key
+logs/
+files/
+
+# Temporary files
+/tmp/sendychat-*
+/tmp/test_*
+/private/tmp/test_*
+
+# Go build artifacts
+*.test
+*.out
+*.prof
+vendor/
+
+# IDE and editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# OS files
+Thumbs.db
+
+# Test coverage
+coverage.txt
+coverage.html
