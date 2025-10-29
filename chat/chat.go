@@ -340,6 +340,11 @@ func (c *Chat) GetMessages(peerID router.PeerID, limit int) ([]*Message, error) 
 	return c.storage.GetMessages(peerID, limit)
 }
 
+// SearchMessages searches for messages containing the query string across all contacts
+func (c *Chat) SearchMessages(query string, limit int) ([]*SearchResult, error) {
+	return c.storage.SearchMessages(query, limit)
+}
+
 // MarkAsRead помечает сообщения как прочитанные
 func (c *Chat) MarkAsRead(peerID router.PeerID) error {
 	return c.storage.MarkAsRead(peerID)

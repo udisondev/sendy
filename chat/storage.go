@@ -41,6 +41,12 @@ type Message struct {
 	IsRead    bool
 }
 
+// SearchResult represents a search result with contact info
+type SearchResult struct {
+	Message
+	ContactName string
+}
+
 // NewStorage creates a new storage
 func NewStorage(dbPath string) (*Storage, error) {
 	db, err := sql.Open("sqlite3", dbPath)
@@ -507,4 +513,65 @@ func (s *Storage) GetFileTransfers(peerID router.PeerID, limit int) ([]struct {
 	}
 
 	return transfers, rows.Err()
+}
+
+// SearchMessages searches for messages containing the query string
+// Returns results from all contacts, sorted by timestamp (newest first)
+func (s *Storage) SearchMessages(query string, limit int) ([]*SearchResult, error) {
+	if query == "" {
+		return nil, nil
+	}
+
+	// Use LIKE for case-insensitive search
+	// Add % wildcards for substring matching
+	searchPattern := "%" + query + "%"
+
+	rows, err := s.db.Query(`
+		SELECT
+			m.id, m.peer_id, m.content, m.timestamp, m.is_outgoing, m.is_read,
+			c.name
+		FROM messages m
+		JOIN contacts c ON m.peer_id = c.peer_id
+		WHERE m.content LIKE ? COLLATE NOCASE
+		ORDER BY m.timestamp DESC
+		LIMIT ?
+	`, searchPattern, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []*SearchResult
+	for rows.Next() {
+		var result SearchResult
+		var hexStr string
+		var timestamp int64
+		var isOutgoing, isRead int
+
+		if err := rows.Scan(
+			&result.ID, &hexStr, &result.Content,
+			&timestamp, &isOutgoing, &isRead,
+			&result.ContactName,
+		); err != nil {
+			return nil, err
+		}
+
+		// SECURITY: Validate hex decoding
+		peerIDBytes, err := hex.DecodeString(hexStr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid peer_id in database: %w", err)
+		}
+		if len(peerIDBytes) != router.PeerIDSize {
+			return nil, fmt.Errorf("invalid peer_id size in database: got %d, expected %d", len(peerIDBytes), router.PeerIDSize)
+		}
+
+		copy(result.PeerID[:], peerIDBytes)
+		result.Timestamp = time.Unix(timestamp, 0)
+		result.IsOutgoing = isOutgoing != 0
+		result.IsRead = isRead != 0
+
+		results = append(results, &result)
+	}
+
+	return results, rows.Err()
 }

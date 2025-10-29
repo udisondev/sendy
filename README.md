@@ -12,6 +12,7 @@
 - 🔑 **Ed25519 Authentication**: Cryptographic identity for each peer
 - 🌐 **P2P WebRTC Connections**: Direct peer-to-peer communication after initial handshake
 - 💬 **Persistent Chat History**: SQLite database for messages and contacts
+- 🔍 **Message Search**: Fast full-text search across all conversations
 - 📁 **File Transfer**: Send files up to 200MB with encrypted transit
 - 🎨 **Terminal UI**: Modern TUI built with Bubbletea
 - 🚀 **High Performance**: 1.27 GB/s direct P2P transfer, 63,642 msg/s router throughput
@@ -96,6 +97,7 @@ On first run, keys are automatically generated and your Peer ID is displayed.
 
 **Contact List Panel (left):**
 - `↑/↓` or `j/k` - Navigate contacts
+- `/` - Search and filter contacts by name
 - `a` - Add new contact
 - `i` - Show your Peer ID
 - `d` - Delete contact and chat history
@@ -105,6 +107,7 @@ On first run, keys are automatically generated and your Peer ID is displayed.
 
 **Message Panel (top right):**
 - `↑/↓` or `j/k` - Scroll messages
+- `/` - Search messages across all conversations
 - `PgUp/PgDown` - Page through messages
 
 **Input Panel (bottom right):**
@@ -113,6 +116,20 @@ On first run, keys are automatically generated and your Peer ID is displayed.
 - `Ctrl+S` - Send message
 - `f` - Send file (opens fzf file picker)
 - `Esc` - Cancel file selection
+
+**Contact Search Mode:**
+- `/` - Open contact search (from contact list panel)
+- Type contact name and press `Enter` to filter
+- `↑/↓` or `j/k` - Navigate filtered contacts
+- `Enter` - Select contact and open chat
+- `Esc` - Close search and return to main view
+
+**Message Search Mode:**
+- `/` - Open message search (from message panel)
+- Type your search query and press `Enter` to search
+- `↑/↓` or `j/k` - Navigate search results
+- `Enter` - Jump to selected message in conversation
+- `Esc` - Close search and return to main view
 
 ### Data Directory
 
@@ -390,10 +407,10 @@ go test -bench=. -benchtime=5s ./p2p
 - [ ] Multi-device key synchronization
 
 **Features:**
+- [x] Message search
 - [ ] Group chats
 - [ ] Voice/video calls (WebRTC media streams)
 - [ ] Message reactions and replies
-- [ ] Message search
 - [ ] Contact verification (QR codes)
 - [ ] Desktop notifications
 

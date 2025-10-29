@@ -32,6 +32,8 @@ const (
 	viewRenameContact
 	viewConfirmDelete
 	viewFilePicker
+	viewSearch
+	viewSearchContacts
 )
 
 // model представляет состояние TUI
@@ -48,6 +50,12 @@ type model struct {
 	addContactInput     textarea.Model
 	renameInput         textarea.Model
 	filePicker          *FilePickerModel
+	searchInput         textarea.Model
+	searchResults       []*SearchResult
+	selectedSearchResult int
+	searchContactInput  textarea.Model
+	filteredContacts    []*Contact
+	selectedFilteredContact int
 	width               int
 	height              int
 	ready               bool
@@ -145,19 +153,37 @@ func NewTUI(chat *Chat, myID router.PeerID) *model {
 	renameInput.SetHeight(1)
 	renameInput.ShowLineNumbers = false
 
+	searchInput := textarea.New()
+	searchInput.Placeholder = "Search messages..."
+	searchInput.Prompt = "> "
+	searchInput.CharLimit = 100
+	searchInput.SetWidth(70)
+	searchInput.SetHeight(1)
+	searchInput.ShowLineNumbers = false
+
+	searchContactInput := textarea.New()
+	searchContactInput.Placeholder = "Search contacts..."
+	searchContactInput.Prompt = "> "
+	searchContactInput.CharLimit = 100
+	searchContactInput.SetWidth(70)
+	searchContactInput.SetHeight(1)
+	searchContactInput.ShowLineNumbers = false
+
 	vp := viewport.New(30, 20)
 
 	m := &model{
-		chat:            chat,
-		myID:            myID,
-		mode:            viewMain,
-		focus:           focusContacts,
-		selectedContact: 0,
-		textarea:        ta,
-		addContactInput: addInput,
-		renameInput:     renameInput,
-		viewport:        vp,
-		contactsWidth:   30, // Default width for contacts panel
+		chat:               chat,
+		myID:               myID,
+		mode:               viewMain,
+		focus:              focusContacts,
+		selectedContact:    0,
+		textarea:           ta,
+		addContactInput:    addInput,
+		renameInput:        renameInput,
+		searchInput:        searchInput,
+		searchContactInput: searchContactInput,
+		viewport:           vp,
+		contactsWidth:      30, // Default width for contacts panel
 	}
 
 	return m
@@ -209,6 +235,10 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateConfirmDeleteView(msg)
 		case viewFilePicker:
 			return m.updateFilePickerView(msg)
+		case viewSearch:
+			return m.updateSearchView(msg)
+		case viewSearchContacts:
+			return m.updateSearchContactsView(msg)
 		}
 
 	case contactsLoadedMsg:
@@ -287,6 +317,10 @@ func (m *model) View() string {
 		return m.viewConfirmDelete()
 	case viewFilePicker:
 		return m.viewFilePicker()
+	case viewSearch:
+		return m.viewSearch()
+	case viewSearchContacts:
+		return m.viewSearchContacts()
 	}
 
 	return ""
@@ -436,9 +470,9 @@ func (m *model) renderStatusBar() string {
 
 	switch m.focus {
 	case focusContacts:
-		helpText = "enter: open chat • ↑/↓: select • f: send file • a: add • r: rename • d: delete • c: connect • x: disconnect • i: my ID • q: quit"
+		helpText = "enter: open chat • ↑/↓: select • /: search contacts • f: send file • a: add • r: rename • d: delete • c: connect • x: disconnect • i: my ID • q: quit"
 	case focusMessages:
-		helpText = "↑/↓: scroll • tab: next panel"
+		helpText = "↑/↓: scroll • /: search messages • tab: next panel"
 	case focusInput:
 		helpText = "enter: send • tab: next panel"
 	}
@@ -490,6 +524,27 @@ func (m *model) updateMainView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "i":
 		if m.focus == focusContacts {
 			m.mode = viewShowMyID
+			m.error = ""
+			return m, nil
+		}
+
+	case "/":
+		if m.focus == focusContacts {
+			// Search contacts
+			m.mode = viewSearchContacts
+			m.searchContactInput.Reset()
+			m.searchContactInput.Focus()
+			m.filteredContacts = nil
+			m.selectedFilteredContact = 0
+			m.error = ""
+			return m, nil
+		} else if m.focus == focusMessages {
+			// Search messages
+			m.mode = viewSearch
+			m.searchInput.Reset()
+			m.searchInput.Focus()
+			m.searchResults = nil
+			m.selectedSearchResult = 0
 			m.error = ""
 			return m, nil
 		}
@@ -1003,6 +1058,236 @@ func (m *model) waitForChatEvents() tea.Msg {
 
 type statusMsg string
 type errorMsg string
+
+func (m *model) viewSearchContacts() string {
+	var b strings.Builder
+
+	b.WriteString(headerStyle.Render("Search Contacts") + "\n\n")
+	b.WriteString("  Enter search query:\n\n")
+	b.WriteString("  " + m.searchContactInput.View() + "\n\n")
+
+	if len(m.filteredContacts) > 0 {
+		b.WriteString(lipgloss.NewStyle().Bold(true).Render(fmt.Sprintf("  Found %d contacts:\n\n", len(m.filteredContacts))))
+
+		// Display filtered contacts
+		for i, contact := range m.filteredContacts {
+			if i >= 20 {
+				b.WriteString(statusBarStyle.Render("  ... and more contacts (showing first 20)"))
+				break
+			}
+
+			style := contactStyle
+			if i == m.selectedFilteredContact {
+				style = selectedContactStyle
+			}
+
+			status := offlineStyle.Render("●")
+			if m.chat.IsOnline(contact.PeerID) {
+				status = onlineStyle.Render("●")
+			}
+
+			blocked := ""
+			if contact.IsBlocked {
+				blocked = " [Blocked]"
+			}
+
+			line := fmt.Sprintf("%s %s%s", status, contact.Name, blocked)
+			b.WriteString(style.Render(line) + "\n")
+		}
+	} else if m.searchContactInput.Value() != "" {
+		b.WriteString(statusBarStyle.Render("  No contacts found") + "\n")
+	}
+
+	b.WriteString("\n")
+	b.WriteString(statusBarStyle.Render("  enter: filter / select contact • ↑/↓ or j/k: navigate • esc: cancel") + "\n")
+
+	if m.error != "" {
+		b.WriteString("\n" + errorStyle.Render(m.error))
+	}
+
+	return b.String()
+}
+
+func (m *model) updateSearchContactsView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	var cmd tea.Cmd
+
+	switch msg.String() {
+	case "esc":
+		m.mode = viewMain
+		m.searchContactInput.Blur()
+		return m, nil
+
+	case "enter":
+		// If we have filtered results, select the contact
+		if len(m.filteredContacts) > 0 && m.selectedFilteredContact < len(m.filteredContacts) {
+			selectedContact := m.filteredContacts[m.selectedFilteredContact]
+
+			// Find contact index in main list
+			for i, contact := range m.contacts {
+				if contact.PeerID == selectedContact.PeerID {
+					m.selectedContact = i
+					m.mode = viewMain
+					m.focus = focusMessages
+					m.searchContactInput.Blur()
+					return m, m.loadMessages
+				}
+			}
+
+			m.error = "Contact not found"
+			return m, nil
+		}
+
+		// No results yet - perform filter
+		query := strings.TrimSpace(m.searchContactInput.Value())
+		if query != "" {
+			m.filteredContacts = m.filterContacts(query)
+			m.selectedFilteredContact = 0
+		}
+		return m, nil
+
+	case "up", "k":
+		if m.selectedFilteredContact > 0 {
+			m.selectedFilteredContact--
+		}
+		return m, nil
+
+	case "down", "j":
+		if m.selectedFilteredContact < len(m.filteredContacts)-1 {
+			m.selectedFilteredContact++
+		}
+		return m, nil
+	}
+
+	m.searchContactInput, cmd = m.searchContactInput.Update(msg)
+	return m, cmd
+}
+
+// filterContacts performs case-insensitive substring search on contact names
+func (m *model) filterContacts(query string) []*Contact {
+	query = strings.ToLower(query)
+	var filtered []*Contact
+
+	for _, contact := range m.contacts {
+		if strings.Contains(strings.ToLower(contact.Name), query) {
+			filtered = append(filtered, contact)
+		}
+	}
+
+	return filtered
+}
+
+func (m *model) viewSearch() string {
+	var b strings.Builder
+
+	b.WriteString(headerStyle.Render("Search Messages") + "\n\n")
+	b.WriteString("  Enter search query:\n\n")
+	b.WriteString("  " + m.searchInput.View() + "\n\n")
+
+	if len(m.searchResults) > 0 {
+		b.WriteString(lipgloss.NewStyle().Bold(true).Render(fmt.Sprintf("  Found %d results:\n\n", len(m.searchResults))))
+
+		// Display search results
+		for i, result := range m.searchResults {
+			if i >= 20 {
+				b.WriteString(statusBarStyle.Render("  ... and more results (showing first 20)"))
+				break
+			}
+
+			style := contactStyle
+			if i == m.selectedSearchResult {
+				style = selectedContactStyle
+			}
+
+			// Truncate content for preview
+			content := result.Content
+			if len(content) > 100 {
+				content = content[:97] + "..."
+			}
+			// Replace newlines with spaces for single-line display
+			content = strings.ReplaceAll(content, "\n", " ")
+
+			direction := "→"
+			if result.IsOutgoing {
+				direction = "←"
+			}
+
+			timestamp := result.Timestamp.Format("Jan 02 15:04")
+			line := fmt.Sprintf("%s [%s] %s: %s", direction, timestamp, result.ContactName, content)
+			b.WriteString(style.Render(line) + "\n")
+		}
+	} else if m.searchInput.Value() != "" {
+		b.WriteString(statusBarStyle.Render("  No results found") + "\n")
+	}
+
+	b.WriteString("\n")
+	b.WriteString(statusBarStyle.Render("  enter: search / jump to message • ↑/↓ or j/k: select result • esc: cancel") + "\n")
+
+	if m.error != "" {
+		b.WriteString("\n" + errorStyle.Render(m.error))
+	}
+
+	return b.String()
+}
+
+func (m *model) updateSearchView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	var cmd tea.Cmd
+
+	switch msg.String() {
+	case "esc":
+		m.mode = viewMain
+		m.searchInput.Blur()
+		return m, nil
+
+	case "enter":
+		// If we have results, jump to selected message
+		// Otherwise, perform search
+		if len(m.searchResults) > 0 && m.selectedSearchResult < len(m.searchResults) {
+			result := m.searchResults[m.selectedSearchResult]
+
+			// Find contact index
+			for i, contact := range m.contacts {
+				if contact.PeerID == result.PeerID {
+					m.selectedContact = i
+					m.mode = viewMain
+					m.focus = focusMessages
+					m.searchInput.Blur()
+					return m, m.loadMessages
+				}
+			}
+
+			m.error = "Contact not found"
+			return m, nil
+		}
+
+		// No results yet - perform search
+		query := strings.TrimSpace(m.searchInput.Value())
+		if query != "" {
+			results, err := m.chat.SearchMessages(query, 100)
+			if err != nil {
+				m.error = fmt.Sprintf("Search error: %v", err)
+				return m, nil
+			}
+			m.searchResults = results
+			m.selectedSearchResult = 0
+		}
+		return m, nil
+
+	case "up", "k":
+		if m.selectedSearchResult > 0 {
+			m.selectedSearchResult--
+		}
+		return m, nil
+
+	case "down", "j":
+		if m.selectedSearchResult < len(m.searchResults)-1 {
+			m.selectedSearchResult++
+		}
+		return m, nil
+	}
+
+	m.searchInput, cmd = m.searchInput.Update(msg)
+	return m, cmd
+}
 
 // RunTUI запускает TUI приложение
 func RunTUI(chat *Chat, myID router.PeerID) error {
