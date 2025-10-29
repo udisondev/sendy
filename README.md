@@ -239,9 +239,10 @@ See [SECURITY.md](SECURITY.md) for complete security documentation.
 ### Chat Client
 
 ```bash
-./bin/sendy --router localhost:9090   # Router address
-./bin/sendy --data ~/.sendy            # Data directory
-./bin/sendy --genkey                   # Generate keys only
+./bin/sendy --router localhost:9090                          # Router address
+./bin/sendy --data ~/.sendy                                  # Data directory
+./bin/sendy --genkey                                         # Generate keys only
+./bin/sendy --stun-servers "stun:my.server:3478,stun2:port"  # Custom STUN servers
 ```
 
 ### Available Commands
@@ -258,6 +259,37 @@ sendy router --help # Show router options
 ### Environment Variables
 
 - `DEBUG=1` - Enable debug logging
+- `SENDY_STUN_SERVERS` - Comma-separated list of STUN servers (e.g., `stun:stun.l.google.com:19302,stun:stun.cloudflare.com:3478`)
+
+### STUN Server Configuration
+
+STUN servers are used for NAT traversal to establish P2P connections. Priority order:
+1. `--stun-servers` flag (highest priority)
+2. `SENDY_STUN_SERVERS` environment variable
+3. Default servers (Google, Cloudflare, Twilio)
+
+**Default STUN servers:**
+```
+stun:stun.l.google.com:19302       # Google (reliable, ~0.15s)
+stun:stun1.l.google.com:19302      # Google backup
+stun:stun.cloudflare.com:3478      # Cloudflare (fastest, ~0.05s)
+stun:global.stun.twilio.com:3478   # Twilio (production-ready, ~0.17s)
+```
+
+**Examples:**
+```bash
+# Use custom STUN servers via flag
+./bin/sendy --stun-servers "stun:mystun.example.com:3478,stun:backup.example.com:3478"
+
+# Use custom STUN servers via environment
+export SENDY_STUN_SERVERS="stun:mystun.example.com:3478,stun:backup.example.com:3478"
+./bin/sendy
+
+# Use default servers (no flag or env set)
+./bin/sendy
+```
+
+**Note:** Different peers can use different STUN servers without issues. Each peer uses STUN servers independently to discover their own public IP address.
 
 ### Limits
 

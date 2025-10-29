@@ -12,6 +12,7 @@ var (
 	chatRouterAddr string
 	chatDataDir    string
 	chatGenKey     bool
+	chatSTUNServers string
 )
 
 var rootCmd = &cobra.Command{
@@ -33,6 +34,7 @@ func init() {
 	rootCmd.Flags().StringVarP(&chatRouterAddr, "router", "r", "localhost:9090", "Router server address")
 	rootCmd.Flags().StringVarP(&chatDataDir, "data", "d", "", "Base directory (default: ~/.sendy)")
 	rootCmd.Flags().BoolVarP(&chatGenKey, "genkey", "g", false, "Generate new keypair and exit")
+	rootCmd.Flags().StringVarP(&chatSTUNServers, "stun-servers", "s", "", "Comma-separated STUN servers (default: Google+Cloudflare+Twilio)")
 
 	rootCmd.CompletionOptions.DisableDefaultCmd = true
 }

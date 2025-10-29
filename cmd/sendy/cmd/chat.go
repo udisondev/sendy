@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -136,11 +137,9 @@ func runChat(cmd *cobra.Command, args []string) {
 	slog.Info("Successfully connected to router")
 
 	// Create P2P connector
+	stunServers := getSTUNServers(chatSTUNServers)
 	connectorCfg := p2p.ConnectorConfig{
-		STUNServers: []string{
-			"stun:stun.l.google.com:19302",
-			"stun:stun1.l.google.com:19302",
-		},
+		STUNServers: stunServers,
 	}
 	slog.Debug("Creating P2P connector with encryption", "stunServers", connectorCfg.STUNServers)
 	connector, err := p2p.NewConnector(client, connectorCfg, income, privkey)
@@ -220,4 +219,48 @@ func loadOrGenerateKeys(keyFile string) (ed25519.PublicKey, ed25519.PrivateKey, 
 	fmt.Println("New keys generated and saved")
 	slog.Info("New keys generated and saved", "path", keyFile)
 	return pubkey, privkey, nil
+}
+
+// getSTUNServers возвращает список STUN серверов с приоритетом:
+// 1. Из флага --stun-servers
+// 2. Из переменной окружения SENDY_STUN_SERVERS
+// 3. Дефолтный список (Google + Cloudflare + OpenRelay + Twilio)
+func getSTUNServers(flagValue string) []string {
+	// Приоритет 1: флаг командной строки
+	if flagValue != "" {
+		servers := strings.Split(flagValue, ",")
+		// Убираем пробелы
+		for i := range servers {
+			servers[i] = strings.TrimSpace(servers[i])
+		}
+		slog.Info("Using STUN servers from flag", "servers", servers)
+		return servers
+	}
+
+	// Приоритет 2: переменная окружения
+	if env := os.Getenv("SENDY_STUN_SERVERS"); env != "" {
+		servers := strings.Split(env, ",")
+		// Убираем пробелы
+		for i := range servers {
+			servers[i] = strings.TrimSpace(servers[i])
+		}
+		slog.Info("Using STUN servers from environment", "servers", servers)
+		return servers
+	}
+
+	// Приоритет 3: дефолтный расширенный список
+	// Только проверенные рабочие серверы
+	defaultServers := []string{
+		// Google (популярные, надежные, ~0.15s)
+		"stun:stun.l.google.com:19302",
+		"stun:stun1.l.google.com:19302",
+
+		// Cloudflare (самые быстрые, ~0.05s)
+		"stun:stun.cloudflare.com:3478",
+
+		// Twilio (надежные для продакшена, ~0.17s)
+		"stun:global.stun.twilio.com:3478",
+	}
+	slog.Debug("Using default STUN servers", "servers", defaultServers)
+	return defaultServers
 }

@@ -842,6 +842,9 @@ func (c *Connector) handleIncoming(income <-chan router.ServerMessage) {
 		slog.Debug("Received encrypted message, decrypting...",
 			"from", hex.EncodeToString(msg.SenderID[:8])+"...")
 
+		// ВАЖНО: Проверяем был ли у нас ключ от этого пира ДО расшифровки
+		_, hadKeyBefore := c.peerEncKeys.Load(msg.SenderID)
+
 		decryptedPayload, err := c.decryptMessageFromPeer(msg.SenderID, msg.Payload)
 		if err != nil {
 			c.events <- Event{
@@ -857,21 +860,20 @@ func (c *Connector) handleIncoming(income <-chan router.ServerMessage) {
 			slog.Debug("KEY_EXCHANGE received",
 				"from", hex.EncodeToString(msg.SenderID[:8])+"...")
 
-			// ВАЖНО: Отправляем KEY_EXCHANGE обратно ТОЛЬКО если мы НЕ инициаторы
-			// Инициатор уже отправил свой KEY_EXCHANGE перед SDP offer
-			// Проверяем есть ли pending offer - если нет, значит мы получатели и должны ответить
-			if _, isPending := c.pendingOffers.Load(msg.SenderID); !isPending {
-				// Мы не инициаторы - отправляем KEY_EXCHANGE в ответ
+			// ВАЖНО: Отправляем KEY_EXCHANGE обратно ТОЛЬКО если это ПЕРВЫЙ раз (не было ключа)
+			// Это предотвращает бесконечный цикл KEY_EXCHANGE между пирами
+			if !hadKeyBefore {
+				// Первый раз видим ключ от этого пира - отправляем KEY_EXCHANGE в ответ
 				if err := c.sendKeyExchange(msg.SenderID); err != nil {
 					slog.Warn("Failed to send KEY_EXCHANGE response",
 						"peerID", hex.EncodeToString(msg.SenderID[:8])+"...",
 						"error", err)
 				} else {
-					slog.Info("Sent KEY_EXCHANGE response (we are responder)",
+					slog.Info("Sent KEY_EXCHANGE response (first key exchange)",
 						"to", hex.EncodeToString(msg.SenderID[:8])+"...")
 				}
 			} else {
-				slog.Debug("KEY_EXCHANGE received (we are initiator, already sent ours)",
+				slog.Debug("KEY_EXCHANGE received (key already known, not responding)",
 					"from", hex.EncodeToString(msg.SenderID[:8])+"...")
 			}
 			continue
