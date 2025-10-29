@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"sendy/p2p"
-	"sendy/router"
+	"github.com/udisondev/sendy/p2p"
+	"github.com/udisondev/sendy/router"
 )
 
 // ChatEvent represents a chat event

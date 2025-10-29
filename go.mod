@@ -1,4 +1,4 @@
-module sendy
+module github.com/udisondev/sendy
 
 go 1.25.1
 

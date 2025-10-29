@@ -15,9 +15,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"sendy/chat"
-	"sendy/p2p"
-	"sendy/router"
+	"github.com/udisondev/sendy/chat"
+	"github.com/udisondev/sendy/p2p"
+	"github.com/udisondev/sendy/router"
 )
 
 func runChat(cmd *cobra.Command, args []string) {

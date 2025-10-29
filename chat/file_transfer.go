@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"sendy/router"
+	"github.com/udisondev/sendy/router"
 )
 
 const (

@@ -3,7 +3,7 @@ package main
 import (
 	"os"
 
-	"sendy/cmd/sendy/cmd"
+	"github.com/udisondev/sendy/cmd/github.com/udisondev/sendy/cmd"
 )
 
 func main() {
