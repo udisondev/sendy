@@ -63,10 +63,10 @@ fzf --height 80%% --reverse --border \
 	return cmd
 }
 
-// ReadFzfResult читает результат из временного файла
+// ReadFzfResult reads the result from a temporary file
 func ReadFzfResult(startDir string) (string, error) {
 	tmpFile := filepath.Join(os.TempDir(), fmt.Sprintf("sendychat-file-selection-%d", os.Getpid()))
-	defer os.Remove(tmpFile) // Удаляем временный файл
+	defer os.Remove(tmpFile) // Remove temporary file
 
 	data, err := os.ReadFile(tmpFile)
 	if err != nil {
@@ -81,7 +81,7 @@ func ReadFzfResult(startDir string) (string, error) {
 		return "", fmt.Errorf("no file selected")
 	}
 
-	// Если путь относительный, делаем абсолютным
+	// If path is relative, make it absolute
 	if !filepath.IsAbs(selectedFile) {
 		selectedFile = filepath.Join(startDir, selectedFile)
 	}
@@ -89,13 +89,13 @@ func ReadFzfResult(startDir string) (string, error) {
 	return selectedFile, nil
 }
 
-// escapeShellArg экранирует аргумент для безопасного использования в shell
+// escapeShellArg escapes an argument for safe use in shell
 func escapeShellArg(arg string) string {
 	arg = strings.ReplaceAll(arg, "'", "'\\''")
 	return "'" + arg + "'"
 }
 
-// CheckFzfInstalled проверяет установлены ли fzf и fd
+// CheckFzfInstalled checks if fzf and fd are installed
 func CheckFzfInstalled() error {
 	if _, err := exec.LookPath("fzf"); err != nil {
 		return fmt.Errorf("fzf not installed: install with 'brew install fzf'")

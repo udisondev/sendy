@@ -12,7 +12,7 @@ import (
 	"sendy/router"
 )
 
-// ChatEvent представляет событие в чате
+// ChatEvent represents a chat event
 type ChatEvent struct {
 	Type         ChatEventType
 	PeerID       router.PeerID
@@ -22,7 +22,7 @@ type ChatEvent struct {
 	Error        error
 }
 
-// ChatEventType тип события чата
+// ChatEventType defines chat event type
 type ChatEventType uint8
 
 const (
@@ -47,7 +47,7 @@ type Chat struct {
 	mu              sync.Mutex
 }
 
-// NewChat создает новый чат
+// NewChat creates a new chat instance
 func NewChat(connector *p2p.Connector, storage *Storage, dataDir string) *Chat {
 	slog.Info("Creating chat instance")
 
@@ -61,6 +61,10 @@ func NewChat(connector *p2p.Connector, storage *Storage, dataDir string) *Chat {
 	// Start connector events handler
 	go c.handleConnectorEvents()
 	slog.Debug("Started connector events handler")
+
+	// Start auto-reconnect job
+	go c.autoReconnect()
+	slog.Debug("Started auto-reconnect job")
 
 	return c
 }
@@ -146,16 +150,16 @@ func (c *Chat) handleConnectorEvents() {
 				}
 			}
 
-			// Проверяем, это файл transfer сообщение или обычное
+			// Check if this is a file transfer message or regular message
 			var ftMsg FileTransferMessage
 			if err := json.Unmarshal(event.Data, &ftMsg); err == nil && ftMsg.TransferID != "" {
-				// Это сообщение передачи файла
+				// This is a file transfer message
 				slog.Debug("Received file transfer message", "peerID", hexID+"...", "type", ftMsg.Type, "transferID", ftMsg.TransferID)
 				c.handleFileTransferMessage(event.PeerID, &ftMsg)
 				continue
 			}
 
-			// Обычное текстовое сообщение
+			// Regular text message
 			msg := &Message{
 				PeerID:     event.PeerID,
 				Content:    string(event.Data),
@@ -300,7 +304,7 @@ func (c *Chat) BlockContact(peerID router.PeerID) error {
 	return nil
 }
 
-// UnblockContact разблокирует контакт
+// UnblockContact unblocks a contact
 func (c *Chat) UnblockContact(peerID router.PeerID) error {
 	hexID := hex.EncodeToString(peerID[:8])
 	slog.Info("Unblocking contact", "peerID", hexID+"...")
@@ -316,26 +320,26 @@ func (c *Chat) UnblockContact(peerID router.PeerID) error {
 	return nil
 }
 
-// RenameContact переименовывает контакт
+// RenameContact renames a contact
 func (c *Chat) RenameContact(peerID router.PeerID, newName string) error {
 	return c.storage.UpdateContactName(peerID, newName)
 }
 
-// DeleteContact удаляет контакт и всю переписку
+// DeleteContact deletes a contact and all conversation history
 func (c *Chat) DeleteContact(peerID router.PeerID) error {
-	// Разрываем соединение
+	// Disconnect connection
 	c.Disconnect(peerID)
 
-	// Удаляем из базы
+	// Delete from database
 	return c.storage.DeleteContact(peerID)
 }
 
-// GetContacts возвращает все контакты
+// GetContacts returns all contacts
 func (c *Chat) GetContacts() ([]*Contact, error) {
 	return c.storage.GetAllContacts()
 }
 
-// GetMessages возвращает сообщения с контактом
+// GetMessages returns messages with a contact
 func (c *Chat) GetMessages(peerID router.PeerID, limit int) ([]*Message, error) {
 	return c.storage.GetMessages(peerID, limit)
 }
@@ -345,17 +349,17 @@ func (c *Chat) SearchMessages(query string, limit int) ([]*SearchResult, error) 
 	return c.storage.SearchMessages(query, limit)
 }
 
-// MarkAsRead помечает сообщения как прочитанные
+// MarkAsRead marks messages as read
 func (c *Chat) MarkAsRead(peerID router.PeerID) error {
 	return c.storage.MarkAsRead(peerID)
 }
 
-// GetUnreadCount возвращает количество непрочитанных сообщений
+// GetUnreadCount returns the number of unread messages
 func (c *Chat) GetUnreadCount(peerID router.PeerID) (int, error) {
 	return c.storage.GetUnreadCount(peerID)
 }
 
-// IsOnline проверяет онлайн ли контакт
+// IsOnline checks if a contact is online
 func (c *Chat) IsOnline(peerID router.PeerID) bool {
 	_, ok := c.connector.GetPeer(peerID)
 	return ok
@@ -689,7 +693,50 @@ func (c *Chat) sendFileTransferCancel(peerID router.PeerID, transferID string) {
 	peer.Send(data)
 }
 
-// Close закрывает чат
+// autoReconnect periodically attempts to reconnect to offline contacts
+func (c *Chat) autoReconnect() {
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
+	// First attempt immediately on startup
+	c.tryReconnectAll()
+
+	for range ticker.C {
+		c.tryReconnectAll()
+	}
+}
+
+// tryReconnectAll attempts to connect to all offline contacts
+func (c *Chat) tryReconnectAll() {
+	contacts, err := c.storage.GetAllContacts()
+	if err != nil {
+		slog.Error("Failed to get contacts for auto-reconnect", "error", err)
+		return
+	}
+
+	for _, contact := range contacts {
+		// Skip blocked contacts
+		if contact.IsBlocked {
+			continue
+		}
+
+		// Check if contact is online
+		if c.IsOnline(contact.PeerID) {
+			continue
+		}
+
+		// Attempt to connect
+		hexID := hex.EncodeToString(contact.PeerID[:])
+		hexShort := hex.EncodeToString(contact.PeerID[:8])
+		slog.Debug("Auto-reconnect attempt", "peerID", hexShort+"...", "name", contact.Name)
+
+		if err := c.Connect(hexID); err != nil {
+			slog.Debug("Auto-reconnect failed", "peerID", hexShort+"...", "error", err)
+		}
+	}
+}
+
+// Close closes the chat
 func (c *Chat) Close() error {
 	c.connector.DisconnectAll()
 	return c.storage.Close()

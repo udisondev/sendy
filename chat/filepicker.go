@@ -13,18 +13,18 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// FilePickerModel представляет файловый браузер
+// FilePickerModel represents a file browser
 type FilePickerModel struct {
 	currentDir  string
 	entries     []fs.DirEntry
 	selected    int
 	width       int
 	height      int
-	onSelect    func(string) // Callback при выборе файла
-	onCancel    func()       // Callback при отмене
+	onSelect    func(string) // Callback when a file is selected
+	onCancel    func()       // Callback when cancelled
 }
 
-// NewFilePicker создает новый файловый браузер
+// NewFilePicker creates a new file browser
 func NewFilePicker(startDir string, onSelect func(string), onCancel func()) *FilePickerModel {
 	if startDir == "" {
 		startDir, _ = os.UserHomeDir()
@@ -41,16 +41,16 @@ func NewFilePicker(startDir string, onSelect func(string), onCancel func()) *Fil
 	return fp
 }
 
-// loadDirectory загружает содержимое текущей директории
+// loadDirectory loads the contents of the current directory
 func (fp *FilePickerModel) loadDirectory() {
 	entries, err := os.ReadDir(fp.currentDir)
 	if err != nil {
-		// Если не можем прочитать, возвращаемся в домашнюю директорию
+		// If unable to read, return to home directory
 		fp.currentDir, _ = os.UserHomeDir()
 		entries, _ = os.ReadDir(fp.currentDir)
 	}
 
-	// Сортируем: сначала директории, потом файлы
+	// Sort: directories first, then files
 	sort.Slice(entries, func(i, j int) bool {
 		if entries[i].IsDir() && !entries[j].IsDir() {
 			return true
@@ -70,12 +70,12 @@ func (fp *FilePickerModel) loadDirectory() {
 	}
 }
 
-// Init инициализирует модель
+// Init initializes the model
 func (fp *FilePickerModel) Init() tea.Cmd {
 	return nil
 }
 
-// Update обрабатывает события
+// Update handles events
 func (fp *FilePickerModel) Update(msg tea.Msg) (*FilePickerModel, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
@@ -106,12 +106,12 @@ func (fp *FilePickerModel) Update(msg tea.Msg) (*FilePickerModel, tea.Cmd) {
 				path := filepath.Join(fp.currentDir, entry.Name())
 
 				if entry.IsDir() {
-					// Переходим в директорию
+					// Navigate into directory
 					fp.currentDir = path
 					fp.selected = 0
 					fp.loadDirectory()
 				} else {
-					// Выбираем файл
+					// Select file
 					if fp.onSelect != nil {
 						fp.onSelect(path)
 					}
@@ -119,7 +119,7 @@ func (fp *FilePickerModel) Update(msg tea.Msg) (*FilePickerModel, tea.Cmd) {
 			}
 
 		case key.Matches(msg, key.NewBinding(key.WithKeys("backspace", "h"))):
-			// Переходим на уровень выше
+			// Go up one level
 			parent := filepath.Dir(fp.currentDir)
 			if parent != fp.currentDir {
 				fp.currentDir = parent
@@ -128,7 +128,7 @@ func (fp *FilePickerModel) Update(msg tea.Msg) (*FilePickerModel, tea.Cmd) {
 			}
 
 		case key.Matches(msg, key.NewBinding(key.WithKeys("g"))):
-			// Переход в домашнюю директорию
+			// Go to home directory
 			fp.currentDir, _ = os.UserHomeDir()
 			fp.selected = 0
 			fp.loadDirectory()
@@ -138,11 +138,11 @@ func (fp *FilePickerModel) Update(msg tea.Msg) (*FilePickerModel, tea.Cmd) {
 	return fp, nil
 }
 
-// View рендерит файловый браузер
+// View renders the file browser
 func (fp *FilePickerModel) View() string {
 	var b strings.Builder
 
-	// Стили
+	// Styles
 	headerStyle := lipgloss.NewStyle().
 		Bold(true).
 		Foreground(lipgloss.Color("#7D56F4")).
@@ -160,13 +160,13 @@ func (fp *FilePickerModel) View() string {
 		Foreground(lipgloss.Color("#FFFFFF")).
 		Padding(0, 1)
 
-	// Заголовок
+	// Header
 	b.WriteString(headerStyle.Render("📁 Select File to Send"))
 	b.WriteString("\n")
 	b.WriteString(lipgloss.NewStyle().Faint(true).Render(fp.currentDir))
 	b.WriteString("\n\n")
 
-	// Показываем ".." для перехода вверх если не в корне
+	// Show ".." for navigating up if not at root
 	parent := filepath.Dir(fp.currentDir)
 	if parent != fp.currentDir {
 		if fp.selected == -1 {
@@ -177,18 +177,18 @@ func (fp *FilePickerModel) View() string {
 		b.WriteString("\n")
 	}
 
-	// Список файлов и директорий
+	// List of files and directories
 	visibleStart := 0
 	visibleEnd := len(fp.entries)
 
-	// Ограничиваем видимую область если много файлов
+	// Limit visible area if there are many files
 	maxVisible := fp.height - 10
 	if maxVisible < 5 {
 		maxVisible = 5
 	}
 
 	if len(fp.entries) > maxVisible {
-		// Центрируем выбранный элемент
+		// Center the selected item
 		halfVisible := maxVisible / 2
 		visibleStart = fp.selected - halfVisible
 		if visibleStart < 0 {
@@ -251,7 +251,7 @@ func (fp *FilePickerModel) View() string {
 		b.WriteString(lipgloss.NewStyle().Faint(true).Render(fmt.Sprintf("  ... (%d more below)\n", len(fp.entries)-visibleEnd)))
 	}
 
-	// Подсказки
+	// Hints
 	b.WriteString("\n")
 	helpStyle := lipgloss.NewStyle().Faint(true)
 	b.WriteString(helpStyle.Render("↑/↓: navigate • Enter: select/open • Backspace: parent dir • g: home • Esc: cancel"))

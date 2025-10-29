@@ -36,7 +36,7 @@ const (
 	viewSearchContacts
 )
 
-// model представляет состояние TUI
+// model represents TUI state
 type model struct {
 	chat                *Chat
 	myID                router.PeerID
@@ -56,7 +56,7 @@ type model struct {
 	searchContactInput  textarea.Model
 	filteredContacts    []*Contact
 	selectedFilteredContact int
-	jumpToMessageID     int64  // ID сообщения для прокрутки после загрузки
+	jumpToMessageID     int64  // Message ID to scroll to after loading
 	width               int
 	height              int
 	ready               bool
@@ -125,7 +125,7 @@ var (
 			Padding(0, 1)
 )
 
-// NewTUI создает новую TUI модель
+// NewTUI creates a new TUI model
 func NewTUI(chat *Chat, myID router.PeerID) *model {
 	ta := textarea.New()
 	ta.Placeholder = "Type a message... (Ctrl+S to send)"
@@ -190,7 +190,7 @@ func NewTUI(chat *Chat, myID router.PeerID) *model {
 	return m
 }
 
-// Init инициализирует TUI
+// Init initializes TUI
 func (m *model) Init() tea.Cmd {
 	return tea.Batch(
 		textarea.Blink,
@@ -199,7 +199,7 @@ func (m *model) Init() tea.Cmd {
 	)
 }
 
-// Update обрабатывает сообщения
+// Update handles messages
 func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
@@ -264,18 +264,18 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.statusMsg = ""
 
 	case fileSelectedMsg:
-		// Результат от fzf file picker
+		// Result from fzf file picker
 		if msg.err != nil {
-			// Если отменено - сразу возвращаемся без ошибки
+			// If cancelled - return immediately without error
 			if msg.err.Error() == "cancelled" {
 				return m, nil
 			}
-			// Другие ошибки показываем
+			// Show other errors
 			m.error = fmt.Sprintf("File selection error: %v", msg.err)
 			return m, nil
 		}
 
-		// Читаем выбранный файл
+		// Read selected file
 		filePath, err := ReadFzfResult(msg.startDir)
 		if err != nil {
 			if err.Error() != "cancelled" {
@@ -299,7 +299,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
-// View рендерит UI
+// View renders UI
 func (m *model) View() string {
 	if !m.ready {
 		return "Initializing..."
@@ -597,15 +597,15 @@ func (m *model) viewShowMyID() string {
 func (m *model) updateContactsFocus(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "enter":
-		// Открываем чат с выбранным контактом
+		// Open chat with selected contact
 		if len(m.contacts) > 0 {
-			// Переключаем фокус на панель ввода сообщения
+			// Switch focus to message input panel
 			m.focus = focusInput
 			m.textarea.Focus()
-			// Отмечаем сообщения как прочитанные
+			// Mark messages as read
 			contact := m.contacts[m.selectedContact]
 			m.chat.MarkAsRead(contact.PeerID)
-			// Загружаем сообщения
+			// Load messages
 			return m, m.loadMessages
 		}
 
@@ -624,7 +624,7 @@ func (m *model) updateContactsFocus(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 	case "r":
-		// Переименовать контакт
+		// Rename contact
 		if len(m.contacts) > 0 {
 			m.mode = viewRenameContact
 			contact := m.contacts[m.selectedContact]
@@ -635,7 +635,7 @@ func (m *model) updateContactsFocus(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 	case "d":
-		// Запросить подтверждение удаления
+		// Request deletion confirmation
 		if len(m.contacts) > 0 {
 			contact := m.contacts[m.selectedContact]
 			m.contactToDelete = contact.PeerID
@@ -697,13 +697,13 @@ func (m *model) updateContactsFocus(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 
-			// Проверяем установлен ли fzf+fd
+			// Check if fzf+fd is installed
 			if err := CheckFzfInstalled(); err == nil {
-				// Используем fzf+fd
+				// Use fzf+fd
 				startDir, _ := os.UserHomeDir()
 				return m, CreateFzfCommand(startDir)
 			} else {
-				// Fallback на встроенный file picker
+				// Fallback to built-in file picker
 				m.filePicker = NewFilePicker("",
 					func(filePath string) {
 						// File selected - send it
@@ -788,7 +788,7 @@ func (m *model) updateAddContactView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		// Генерируем имя из первых символов ID
+		// Generate name from first characters of ID
 		name := "Peer-" + hexID[:8]
 
 		if err := m.chat.AddContact(hexID, name); err != nil {
@@ -874,7 +874,7 @@ func (m *model) viewConfirmDelete() string {
 func (m *model) updateConfirmDeleteView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "y", "Y":
-		// Подтверждено - удаляем
+		// Confirmed - delete
 		if err := m.chat.DeleteContact(m.contactToDelete); err != nil {
 			m.error = err.Error()
 			m.mode = viewMain
@@ -886,7 +886,7 @@ func (m *model) updateConfirmDeleteView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, m.loadContacts
 
 	case "n", "N", "esc":
-		// Отменено
+		// Cancelled
 		m.mode = viewMain
 		return m, nil
 	}
@@ -916,11 +916,11 @@ func (m *model) updateFilePickerView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m *model) updateViewport() {
 	var b strings.Builder
-	jumpToLine := -1  // Строка к которой нужно прокрутить
-	currentLine := 0  // Текущая строка в viewport
+	jumpToLine := -1  // Line to scroll to
+	currentLine := 0  // Current line in viewport
 
 	for _, msg := range m.messages {
-		// Если это сообщение к которому нужно прокрутить - запоминаем строку
+		// If this is the message to scroll to - remember the line
 		if m.jumpToMessageID > 0 && msg.ID == m.jumpToMessageID {
 			jumpToLine = currentLine
 		}
@@ -931,29 +931,29 @@ func (m *model) updateViewport() {
 			line := fmt.Sprintf("[%s] You: %s", timestamp, msg.Content)
 			rendered := messageOutgoingStyle.Render(line)
 			b.WriteString(rendered + "\n")
-			// Считаем строки (с учетом переносов в Content)
+			// Count lines (including newlines in Content)
 			currentLine += strings.Count(msg.Content, "\n") + 1
 		} else {
 			line := fmt.Sprintf("[%s] %s", timestamp, msg.Content)
 			rendered := messageIncomingStyle.Render(line)
 			b.WriteString(rendered + "\n")
-			// Считаем строки (с учетом переносов в Content)
+			// Count lines (including newlines in Content)
 			currentLine += strings.Count(msg.Content, "\n") + 1
 		}
 	}
 
 	m.viewport.SetContent(b.String())
 
-	// Прокручиваем к нужному сообщению или в конец
+	// Scroll to the needed message or to the end
 	if jumpToLine >= 0 {
-		// Прокручиваем к найденному сообщению
-		// Центрируем сообщение в viewport если возможно
+		// Scroll to found message
+		// Center message in viewport if possible
 		targetOffset := jumpToLine - m.viewport.Height/2
 		if targetOffset < 0 {
 			targetOffset = 0
 		}
 		m.viewport.SetYOffset(targetOffset)
-		m.jumpToMessageID = 0  // Сбрасываем флаг
+		m.jumpToMessageID = 0  // Reset flag
 	} else {
 		m.viewport.GotoBottom()
 	}
@@ -967,31 +967,31 @@ func (m *model) handleChatEvent(event ChatEvent) (tea.Model, tea.Cmd) {
 		if m.mode == viewMain && len(m.contacts) > 0 {
 			contact := m.contacts[m.selectedContact]
 			if contact.PeerID == event.PeerID {
-				// Сообщение от выбранного контакта
-				// Отмечаем как прочитанное
+				// Message from selected contact
+				// Mark as read
 				m.chat.MarkAsRead(event.PeerID)
-				// Если фокус на контактах, переключаем на сообщения
+				// If focus is on contacts, switch to messages
 				if m.focus == focusContacts {
 					m.focus = focusMessages
 				}
 				cmd = m.loadMessages
 			} else {
-				// Сообщение от другого контакта - обновляем список контактов
+				// Message from another contact - update contacts list
 				cmd = m.loadContacts
 			}
 		} else {
-			// Обновляем список контактов чтобы показать непрочитанные
+			// Update contacts list to show unread messages
 			cmd = m.loadContacts
 		}
 
 	case ChatEventMessageSent:
-		// Сообщение уже в истории, просто перезагружаем
+		// Message already in history, just reload
 		if m.mode == viewMain {
 			cmd = m.loadMessages
 		}
 
 	case ChatEventContactAdded:
-		// Новый контакт добавлен автоматически
+		// New contact added automatically
 		m.statusMsg = "New contact added"
 		cmd = m.loadContacts
 
@@ -1004,13 +1004,10 @@ func (m *model) handleChatEvent(event ChatEvent) (tea.Model, tea.Cmd) {
 		cmd = m.loadContacts
 
 	case ChatEventConnectionFailed:
-		m.error = fmt.Sprintf("Connection failed: %v", event.Error)
+		// Errors are logged, no need to show in TUI
 
 	case ChatEventError:
-		// Фильтруем технические ошибки которые не нужно показывать пользователю
-		if !isIgnorableError(event.Error) {
-			m.error = fmt.Sprintf("Error: %v", event.Error)
-		}
+		// Errors are logged, no need to show in TUI
 
 	case ChatEventFileTransferStarted:
 		if event.FileTransfer.IsOutgoing {
@@ -1032,13 +1029,13 @@ func (m *model) handleChatEvent(event ChatEvent) (tea.Model, tea.Cmd) {
 		} else {
 			m.statusMsg = fmt.Sprintf("File received: %s → %s", event.FileTransfer.FileName, event.FileTransfer.FilePath)
 		}
-		cmd = m.loadMessages // Обновляем сообщения
+		cmd = m.loadMessages // Update messages
 
 	case ChatEventFileTransferFailed:
 		m.error = fmt.Sprintf("File transfer failed: %v", event.Error)
 	}
 
-	// ВАЖНО: всегда возвращаем команду для ожидания следующего события
+	// IMPORTANT: always return command to wait for next event
 	return m, tea.Batch(cmd, m.waitForChatEvents)
 }
 
@@ -1071,7 +1068,7 @@ func (m *model) loadMessages() tea.Msg {
 		return errorMsg(err.Error())
 	}
 
-	// Отмечаем как прочитанное
+	// Mark as read
 	m.chat.MarkAsRead(contact.PeerID)
 
 	return messagesLoadedMsg{messages}
@@ -1206,7 +1203,7 @@ func (m *model) filterContacts(query string) []*Contact {
 	return filtered
 }
 
-// isIgnorableError проверяет технические ошибки которые не нужно показывать пользователю
+// isIgnorableError checks for technical errors that don't need to be shown to user
 func isIgnorableError(err error) bool {
 	if err == nil {
 		return true
@@ -1214,11 +1211,11 @@ func isIgnorableError(err error) bool {
 
 	errStr := err.Error()
 
-	// Технические ошибки WebRTC/SCTP при закрытии соединения
+	// Technical WebRTC/SCTP errors when closing connection
 	ignorablePatterns := []string{
-		"User Initiated Abort",          // Пользователь закрыл соединение
-		"abort chunk",                    // Техническая деталь SCTP
-		"sending reset packet in non-established state", // Закрытие уже закрытого соединения
+		"User Initiated Abort",          // User closed connection
+		"abort chunk",                    // SCTP technical detail
+		"sending reset packet in non-established state", // Closing already closed connection
 	}
 
 	for _, pattern := range ignorablePatterns {
@@ -1228,6 +1225,26 @@ func isIgnorableError(err error) bool {
 	}
 
 	return false
+}
+
+// makeErrorUserFriendly makes technical errors user-friendly
+func makeErrorUserFriendly(err error) string {
+	if err == nil {
+		return ""
+	}
+
+	errStr := err.Error()
+
+	// Connection errors
+	if strings.Contains(errStr, "timeout waiting for peer key exchange") {
+		return "Unable to connect (peer offline)"
+	}
+	if strings.Contains(errStr, "Connection failed") {
+		return "Connection failed (peer may be offline)"
+	}
+
+	// Return original error if no pattern found
+	return errStr
 }
 
 func (m *model) viewSearch() string {
@@ -1302,7 +1319,7 @@ func (m *model) updateSearchView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			for i, contact := range m.contacts {
 				if contact.PeerID == result.PeerID {
 					m.selectedContact = i
-					m.jumpToMessageID = result.ID  // Сохраняем ID для прокрутки
+					m.jumpToMessageID = result.ID  // Save ID for scrolling
 					m.mode = viewMain
 					m.focus = focusMessages
 					m.searchInput.Blur()
@@ -1344,7 +1361,7 @@ func (m *model) updateSearchView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-// RunTUI запускает TUI приложение
+// RunTUI starts the TUI application
 func RunTUI(chat *Chat, myID router.PeerID) error {
 	p := tea.NewProgram(
 		NewTUI(chat, myID),

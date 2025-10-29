@@ -62,7 +62,7 @@ type FileTransfer struct {
 	mu          sync.Mutex
 }
 
-// FileTransferStatus статус передачи
+// FileTransferStatus defines transfer status
 type FileTransferStatus string
 
 const (
@@ -73,7 +73,7 @@ const (
 	FileTransferCancelled    FileTransferStatus = "cancelled"
 )
 
-// FileTransferManager управляет передачами файлов
+// FileTransferManager manages file transfers
 type FileTransferManager struct {
 	storage   *Storage
 	dataDir   string
@@ -81,7 +81,7 @@ type FileTransferManager struct {
 	mu        sync.Mutex
 }
 
-// NewFileTransferManager создает новый менеджер передач
+// NewFileTransferManager creates a new transfer manager
 func NewFileTransferManager(storage *Storage, dataDir string) *FileTransferManager {
 	filesDir := filepath.Join(dataDir, "files")
 	os.MkdirAll(filesDir, 0755)
@@ -92,7 +92,7 @@ func NewFileTransferManager(storage *Storage, dataDir string) *FileTransferManag
 	}
 }
 
-// GenerateTransferID генерирует уникальный ID для передачи
+// GenerateTransferID generates unique transfer ID
 func GenerateTransferID(peerID router.PeerID, fileName string) string {
 	h := sha256.New()
 	h.Write(peerID[:])
@@ -101,9 +101,9 @@ func GenerateTransferID(peerID router.PeerID, fileName string) string {
 	return hex.EncodeToString(h.Sum(nil))[:16]
 }
 
-// ValidateFileName проверяет имя файла на безопасность
+// ValidateFileName checks file name for security
 func ValidateFileName(fileName string) error {
-	// Проверка на path traversal
+	// Check for path traversal
 	if filepath.Base(fileName) != fileName {
 		return fmt.Errorf("invalid file name: path traversal detected")
 	}
@@ -196,7 +196,7 @@ func (ftm *FileTransferManager) StartReceiving(peerID router.PeerID, msg *FileTr
 	return ft, nil
 }
 
-// GetTransfer возвращает передачу по ID
+// GetTransfer returns transfer by ID
 func (ftm *FileTransferManager) GetTransfer(transferID string) (*FileTransfer, bool) {
 	val, ok := ftm.transfers.Load(transferID)
 	if !ok {
@@ -205,12 +205,12 @@ func (ftm *FileTransferManager) GetTransfer(transferID string) (*FileTransfer, b
 	return val.(*FileTransfer), true
 }
 
-// EncodeFileMessage кодирует сообщение передачи файла
+// EncodeFileMessage encodes file transfer message
 func EncodeFileMessage(msg *FileTransferMessage) ([]byte, error) {
 	return json.Marshal(msg)
 }
 
-// DecodeFileMessage декодирует сообщение передачи файла
+// DecodeFileMessage decodes file transfer message
 func DecodeFileMessage(data []byte) (*FileTransferMessage, error) {
 	var msg FileTransferMessage
 	if err := json.Unmarshal(data, &msg); err != nil {
@@ -219,7 +219,7 @@ func DecodeFileMessage(data []byte) (*FileTransferMessage, error) {
 	return &msg, nil
 }
 
-// UpdateProgress обновляет прогресс передачи
+// UpdateProgress updates transfer progress
 func (ft *FileTransfer) UpdateProgress(chunksCompleted int) {
 	ft.mu.Lock()
 	defer ft.mu.Unlock()
@@ -229,7 +229,7 @@ func (ft *FileTransfer) UpdateProgress(chunksCompleted int) {
 	}
 }
 
-// Close закрывает файл передачи
+// Close closes transfer file
 func (ft *FileTransfer) Close() error {
 	ft.mu.Lock()
 	defer ft.mu.Unlock()
@@ -240,7 +240,7 @@ func (ft *FileTransfer) Close() error {
 	return nil
 }
 
-// CalculateFileHash вычисляет SHA256 хеш файла
+// CalculateFileHash calculates SHA256 hash of file
 func CalculateFileHash(filePath string) (string, error) {
 	file, err := os.Open(filePath)
 	if err != nil {

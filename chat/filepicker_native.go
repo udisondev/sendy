@@ -10,7 +10,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-// CreateNativeFilePickerCommand создает команду для запуска нативного file picker'а ОС
+// CreateNativeFilePickerCommand creates a command to launch the OS native file picker
 func CreateNativeFilePickerCommand() tea.Cmd {
 	return tea.ExecProcess(createNativePickerCmd(), func(err error) tea.Msg {
 		if err != nil {
@@ -20,7 +20,7 @@ func CreateNativeFilePickerCommand() tea.Cmd {
 	})
 }
 
-// createNativePickerCmd создает команду в зависимости от ОС
+// createNativePickerCmd creates a command depending on the OS
 func createNativePickerCmd() *exec.Cmd {
 	switch runtime.GOOS {
 	case "darwin":
@@ -30,12 +30,12 @@ func createNativePickerCmd() *exec.Cmd {
 	case "windows":
 		return createWindowsPickerCmd()
 	default:
-		// Fallback: используем simple path input через dialog
+		// Fallback: use simple path input via dialog
 		return exec.Command("echo", "")
 	}
 }
 
-// createMacOSPickerCmd создает AppleScript команду для macOS
+// createMacOSPickerCmd creates an AppleScript command for macOS
 func createMacOSPickerCmd() *exec.Cmd {
 	tmpFile := fmt.Sprintf("/tmp/sendychat-native-selection-%d", getPID())
 
@@ -50,12 +50,12 @@ end tell' > %s 2>&1`, tmpFile)
 	return cmd
 }
 
-// createLinuxPickerCmd создает команду для Linux
-// Пробуем zenity, kdialog, или yad в порядке приоритета
+// createLinuxPickerCmd creates a command for Linux
+// Try zenity, kdialog, or yad in order of priority
 func createLinuxPickerCmd() *exec.Cmd {
 	tmpFile := fmt.Sprintf("/tmp/sendychat-native-selection-%d", getPID())
 
-	// Проверяем какой dialog доступен
+	// Check which dialog is available
 	if _, err := exec.LookPath("zenity"); err == nil {
 		// Zenity (GTK-based)
 		cmd := exec.Command("sh", "-c",
@@ -77,11 +77,11 @@ func createLinuxPickerCmd() *exec.Cmd {
 		return cmd
 	}
 
-	// Fallback: используем простой file input
+	// Fallback: use simple file input
 	return exec.Command("echo", "")
 }
 
-// createWindowsPickerCmd создает PowerShell команду для Windows
+// createWindowsPickerCmd creates a PowerShell command for Windows
 func createWindowsPickerCmd() *exec.Cmd {
 	tmpFile := fmt.Sprintf(`%s\sendychat-native-selection-%d`, getTempDir(), getPID())
 
@@ -102,7 +102,7 @@ if ($FileBrowser.ShowDialog() -eq 'OK') {
 	return cmd
 }
 
-// ReadNativePickerResult читает результат из временного файла
+// ReadNativePickerResult reads the result from a temporary file
 func ReadNativePickerResult() (string, error) {
 	tmpFile := fmt.Sprintf("/tmp/sendychat-native-selection-%d", getPID())
 	if runtime.GOOS == "windows" {
@@ -122,20 +122,20 @@ func ReadNativePickerResult() (string, error) {
 	return selectedFile, nil
 }
 
-// CheckNativePickerAvailable проверяет доступен ли нативный picker
+// CheckNativePickerAvailable checks if native picker is available
 func CheckNativePickerAvailable() bool {
 	switch runtime.GOOS {
 	case "darwin":
-		// macOS всегда имеет AppleScript
+		// macOS always has AppleScript
 		return true
 	case "linux":
-		// Проверяем наличие dialog tools
+		// Check for dialog tools availability
 		_, zenity := exec.LookPath("zenity")
 		_, kdialog := exec.LookPath("kdialog")
 		_, yad := exec.LookPath("yad")
 		return zenity == nil || kdialog == nil || yad == nil
 	case "windows":
-		// Windows всегда имеет PowerShell
+		// Windows always has PowerShell
 		return true
 	default:
 		return false
@@ -152,6 +152,6 @@ func getTempDir() string {
 }
 
 func readTempFile(path string) ([]byte, error) {
-	defer os.Remove(path) // Удаляем временный файл
+	defer os.Remove(path) // Remove temporary file
 	return os.ReadFile(path)
 }

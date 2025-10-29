@@ -30,7 +30,7 @@ type Contact struct {
 	AddedAt             time.Time
 	LastSeen            time.Time
 	IsBlocked           bool
-	NotificationsBlocked bool // Блокировка уведомлений от этого контакта
+	NotificationsBlocked bool // Block notifications from this contact
 }
 
 // Message represents a message in chat
@@ -65,7 +65,7 @@ func NewStorage(dbPath string) (*Storage, error) {
 	return s, nil
 }
 
-// init инициализирует схему базы данных
+// init initializes database schema
 func (s *Storage) init() error {
 	schema := `
 	CREATE TABLE IF NOT EXISTS contacts (
@@ -121,7 +121,7 @@ func (s *Storage) init() error {
 		return err
 	}
 
-	// Миграция: добавляем notifications_blocked для существующих баз данных
+	// Migration: add notifications_blocked for existing databases
 	_, err = s.db.Exec(`
 		ALTER TABLE contacts ADD COLUMN notifications_blocked INTEGER NOT NULL DEFAULT 0;
 	`)
@@ -132,14 +132,14 @@ func (s *Storage) init() error {
 	return nil
 }
 
-// Close закрывает соединение с базой данных
+// Close closes database connection
 func (s *Storage) Close() error {
 	return s.db.Close()
 }
 
-// AddContact добавляет новый контакт
+// AddContact adds a new contact
 func (s *Storage) AddContact(peerID router.PeerID, name string) error {
-	// SECURITY: Валидация имени контакта
+	// SECURITY: Validate contact name
 	if len(name) == 0 {
 		return fmt.Errorf("contact name cannot be empty")
 	}
@@ -147,7 +147,7 @@ func (s *Storage) AddContact(peerID router.PeerID, name string) error {
 		return fmt.Errorf("contact name too long: %d bytes (max %d)", len(name), MaxContactName)
 	}
 
-	// SECURITY: Проверка лимита контактов
+	// SECURITY: Check contact limit
 	var count int
 	if err := s.db.QueryRow(`SELECT COUNT(*) FROM contacts`).Scan(&count); err != nil {
 		return fmt.Errorf("check contact count: %w", err)
@@ -168,9 +168,9 @@ func (s *Storage) AddContact(peerID router.PeerID, name string) error {
 	return err
 }
 
-// UpdateContactName обновляет имя контакта
+// UpdateContactName updates contact name
 func (s *Storage) UpdateContactName(peerID router.PeerID, name string) error {
-	// SECURITY: Валидация имени контакта
+	// SECURITY: Validate contact name
 	if len(name) == 0 {
 		return fmt.Errorf("contact name cannot be empty")
 	}
@@ -183,7 +183,7 @@ func (s *Storage) UpdateContactName(peerID router.PeerID, name string) error {
 	return err
 }
 
-// UpdateLastSeen обновляет время последней активности контакта
+// UpdateLastSeen updates contact's last activity time
 func (s *Storage) UpdateLastSeen(peerID router.PeerID) error {
 	hexID := hex.EncodeToString(peerID[:])
 	now := time.Now().Unix()
@@ -191,21 +191,21 @@ func (s *Storage) UpdateLastSeen(peerID router.PeerID) error {
 	return err
 }
 
-// SetBlocked устанавливает статус блокировки контакта
+// SetBlocked sets contact blocked status
 func (s *Storage) SetBlocked(peerID router.PeerID, blocked bool) error {
 	hexID := hex.EncodeToString(peerID[:])
 	_, err := s.db.Exec(`UPDATE contacts SET is_blocked = ? WHERE peer_id = ?`, blocked, hexID)
 	return err
 }
 
-// SetNotificationsBlocked устанавливает блокировку уведомлений для контакта
+// SetNotificationsBlocked sets notification blocking for contact
 func (s *Storage) SetNotificationsBlocked(peerID router.PeerID, blocked bool) error {
 	hexID := hex.EncodeToString(peerID[:])
 	_, err := s.db.Exec(`UPDATE contacts SET notifications_blocked = ? WHERE peer_id = ?`, blocked, hexID)
 	return err
 }
 
-// DeleteContact удаляет контакт и всю переписку с ним
+// DeleteContact deletes contact and all conversation history
 func (s *Storage) DeleteContact(peerID router.PeerID) error {
 	hexID := hex.EncodeToString(peerID[:])
 
@@ -215,12 +215,12 @@ func (s *Storage) DeleteContact(peerID router.PeerID) error {
 	}
 	defer tx.Rollback()
 
-	// Удаляем сообщения
+	// Delete messages
 	if _, err := tx.Exec(`DELETE FROM messages WHERE peer_id = ?`, hexID); err != nil {
 		return err
 	}
 
-	// Удаляем контакт
+	// Delete contact
 	if _, err := tx.Exec(`DELETE FROM contacts WHERE peer_id = ?`, hexID); err != nil {
 		return err
 	}
@@ -228,7 +228,7 @@ func (s *Storage) DeleteContact(peerID router.PeerID) error {
 	return tx.Commit()
 }
 
-// GetContact возвращает контакт по ID
+// GetContact returns contact by ID
 func (s *Storage) GetContact(peerID router.PeerID) (*Contact, error) {
 	hexID := hex.EncodeToString(peerID[:])
 
@@ -246,7 +246,7 @@ func (s *Storage) GetContact(peerID router.PeerID) (*Contact, error) {
 		return nil, err
 	}
 
-	// SECURITY: Проверяем ошибку декодирования hex
+	// SECURITY: Check hex decoding error
 	peerIDBytes, err := hex.DecodeString(hexStr)
 	if err != nil {
 		return nil, fmt.Errorf("invalid peer_id in database: %w", err)
@@ -264,7 +264,7 @@ func (s *Storage) GetContact(peerID router.PeerID) (*Contact, error) {
 	return &contact, nil
 }
 
-// GetAllContacts возвращает все контакты
+// GetAllContacts returns all contacts
 func (s *Storage) GetAllContacts() ([]*Contact, error) {
 	rows, err := s.db.Query(`
 		SELECT peer_id, name, added_at, last_seen, is_blocked, notifications_blocked
@@ -287,7 +287,7 @@ func (s *Storage) GetAllContacts() ([]*Contact, error) {
 			return nil, err
 		}
 
-		// SECURITY: Проверяем ошибку декодирования hex
+		// SECURITY: Check hex decoding error
 		peerIDBytes, err := hex.DecodeString(hexStr)
 		if err != nil {
 			return nil, fmt.Errorf("invalid peer_id in database: %w", err)
@@ -308,9 +308,9 @@ func (s *Storage) GetAllContacts() ([]*Contact, error) {
 	return contacts, rows.Err()
 }
 
-// SaveMessage сохраняет сообщение
+// SaveMessage saves a message
 func (s *Storage) SaveMessage(msg *Message) error {
-	// SECURITY: Валидация размера сообщения
+	// SECURITY: Validate message size
 	if len(msg.Content) == 0 {
 		return fmt.Errorf("message content cannot be empty")
 	}
@@ -334,7 +334,7 @@ func (s *Storage) SaveMessage(msg *Message) error {
 	return nil
 }
 
-// GetMessages возвращает сообщения с контактом
+// GetMessages returns messages with a contact
 func (s *Storage) GetMessages(peerID router.PeerID, limit int) ([]*Message, error) {
 	hexID := hex.EncodeToString(peerID[:])
 
@@ -361,7 +361,7 @@ func (s *Storage) GetMessages(peerID router.PeerID, limit int) ([]*Message, erro
 			return nil, err
 		}
 
-		// SECURITY: Проверяем ошибку декодирования hex
+		// SECURITY: Check hex decoding error
 		peerIDBytes, err := hex.DecodeString(hexStr)
 		if err != nil {
 			return nil, fmt.Errorf("invalid peer_id in database: %w", err)
@@ -378,7 +378,7 @@ func (s *Storage) GetMessages(peerID router.PeerID, limit int) ([]*Message, erro
 		messages = append(messages, &msg)
 	}
 
-	// Reverse чтобы старые сообщения были первыми
+	// Reverse so old messages are first
 	for i := 0; i < len(messages)/2; i++ {
 		j := len(messages) - 1 - i
 		messages[i], messages[j] = messages[j], messages[i]
@@ -387,7 +387,7 @@ func (s *Storage) GetMessages(peerID router.PeerID, limit int) ([]*Message, erro
 	return messages, rows.Err()
 }
 
-// MarkAsRead помечает все сообщения от контакта как прочитанные
+// MarkAsRead marks all messages from contact as read
 func (s *Storage) MarkAsRead(peerID router.PeerID) error {
 	hexID := hex.EncodeToString(peerID[:])
 	_, err := s.db.Exec(`
@@ -397,7 +397,7 @@ func (s *Storage) MarkAsRead(peerID router.PeerID) error {
 	return err
 }
 
-// GetUnreadCount возвращает количество непрочитанных сообщений от контакта
+// GetUnreadCount returns the number of unread messages from contact
 func (s *Storage) GetUnreadCount(peerID router.PeerID) (int, error) {
 	hexID := hex.EncodeToString(peerID[:])
 
@@ -410,7 +410,7 @@ func (s *Storage) GetUnreadCount(peerID router.PeerID) (int, error) {
 	return count, err
 }
 
-// SaveFileTransfer сохраняет информацию о передаче файла
+// SaveFileTransfer saves file transfer information
 func (s *Storage) SaveFileTransfer(transferID string, peerID router.PeerID, fileName string, fileSize int64, filePath string, isOutgoing bool, status string) error {
 	hexID := hex.EncodeToString(peerID[:])
 	now := time.Now().Unix()
@@ -426,7 +426,7 @@ func (s *Storage) SaveFileTransfer(transferID string, peerID router.PeerID, file
 	return err
 }
 
-// UpdateFileTransferProgress обновляет прогресс передачи
+// UpdateFileTransferProgress updates transfer progress
 func (s *Storage) UpdateFileTransferProgress(transferID string, progress int) error {
 	_, err := s.db.Exec(`
 		UPDATE file_transfers SET progress = ?
@@ -435,7 +435,7 @@ func (s *Storage) UpdateFileTransferProgress(transferID string, progress int) er
 	return err
 }
 
-// UpdateFileTransferStatus обновляет статус передачи
+// UpdateFileTransferStatus updates transfer status
 func (s *Storage) UpdateFileTransferStatus(transferID string, status string, hash string) error {
 	now := time.Now().Unix()
 	_, err := s.db.Exec(`
@@ -446,7 +446,7 @@ func (s *Storage) UpdateFileTransferStatus(transferID string, status string, has
 	return err
 }
 
-// GetFileTransfer возвращает информацию о передаче по ID
+// GetFileTransfer returns transfer information by ID
 func (s *Storage) GetFileTransfer(transferID string) (peerID router.PeerID, fileName string, fileSize int64, filePath string, isOutgoing bool, status string, progress int, err error) {
 	var hexID string
 	var isOut int
@@ -471,7 +471,7 @@ func (s *Storage) GetFileTransfer(transferID string) (peerID router.PeerID, file
 	return
 }
 
-// GetFileTransfers возвращает список передач для контакта
+// GetFileTransfers returns list of transfers for contact
 func (s *Storage) GetFileTransfers(peerID router.PeerID, limit int) ([]struct {
 	TransferID  string
 	FileName    string
