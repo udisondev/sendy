@@ -8,7 +8,7 @@ import (
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
-	"sendy/router"
+	"github.com/udisondev/sendy/router"
 )
 
 // Security limits

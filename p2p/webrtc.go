@@ -44,7 +44,7 @@ import (
 	"sync"
 	"time"
 
-	"sendy/router"
+	"github.com/udisondev/sendy/router"
 
 	"github.com/pion/webrtc/v4"
 )

@@ -10,7 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"sendy/router"
+	"github.com/udisondev/sendy/router"
 )
 
 var (

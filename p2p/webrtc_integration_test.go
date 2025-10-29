@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"sendy/router"
+	"github.com/udisondev/sendy/router"
 )
 
 func TestWebRTCIntegration(t *testing.T) {
