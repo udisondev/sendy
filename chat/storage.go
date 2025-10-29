@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"fmt"
+	"strings"
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -24,11 +25,12 @@ type Storage struct {
 
 // Contact represents a contact in address book
 type Contact struct {
-	PeerID    router.PeerID
-	Name      string
-	AddedAt   time.Time
-	LastSeen  time.Time
-	IsBlocked bool
+	PeerID              router.PeerID
+	Name                string
+	AddedAt             time.Time
+	LastSeen            time.Time
+	IsBlocked           bool
+	NotificationsBlocked bool // Блокировка уведомлений от этого контакта
 }
 
 // Message represents a message in chat
@@ -39,6 +41,12 @@ type Message struct {
 	Timestamp time.Time
 	IsOutgoing bool // true if we sent, false if received
 	IsRead    bool
+}
+
+// SearchResult represents a search result with contact info
+type SearchResult struct {
+	Message
+	ContactName string
 }
 
 // NewStorage creates a new storage
@@ -65,7 +73,8 @@ func (s *Storage) init() error {
 		name TEXT NOT NULL,
 		added_at INTEGER NOT NULL,
 		last_seen INTEGER NOT NULL,
-		is_blocked INTEGER NOT NULL DEFAULT 0
+		is_blocked INTEGER NOT NULL DEFAULT 0,
+		notifications_blocked INTEGER NOT NULL DEFAULT 0
 	);
 
 	CREATE TABLE IF NOT EXISTS messages (
@@ -108,7 +117,19 @@ func (s *Storage) init() error {
 	`
 
 	_, err := s.db.Exec(schema)
-	return err
+	if err != nil {
+		return err
+	}
+
+	// Миграция: добавляем notifications_blocked для существующих баз данных
+	_, err = s.db.Exec(`
+		ALTER TABLE contacts ADD COLUMN notifications_blocked INTEGER NOT NULL DEFAULT 0;
+	`)
+	if err != nil && !strings.Contains(err.Error(), "duplicate column name") {
+		return err
+	}
+
+	return nil
 }
 
 // Close закрывает соединение с базой данных
@@ -177,6 +198,13 @@ func (s *Storage) SetBlocked(peerID router.PeerID, blocked bool) error {
 	return err
 }
 
+// SetNotificationsBlocked устанавливает блокировку уведомлений для контакта
+func (s *Storage) SetNotificationsBlocked(peerID router.PeerID, blocked bool) error {
+	hexID := hex.EncodeToString(peerID[:])
+	_, err := s.db.Exec(`UPDATE contacts SET notifications_blocked = ? WHERE peer_id = ?`, blocked, hexID)
+	return err
+}
+
 // DeleteContact удаляет контакт и всю переписку с ним
 func (s *Storage) DeleteContact(peerID router.PeerID) error {
 	hexID := hex.EncodeToString(peerID[:])
@@ -207,12 +235,12 @@ func (s *Storage) GetContact(peerID router.PeerID) (*Contact, error) {
 	var contact Contact
 	var hexStr string
 	var addedAt, lastSeen int64
-	var isBlocked int
+	var isBlocked, notificationsBlocked int
 
 	err := s.db.QueryRow(`
-		SELECT peer_id, name, added_at, last_seen, is_blocked
+		SELECT peer_id, name, added_at, last_seen, is_blocked, notifications_blocked
 		FROM contacts WHERE peer_id = ?
-	`, hexID).Scan(&hexStr, &contact.Name, &addedAt, &lastSeen, &isBlocked)
+	`, hexID).Scan(&hexStr, &contact.Name, &addedAt, &lastSeen, &isBlocked, &notificationsBlocked)
 
 	if err != nil {
 		return nil, err
@@ -231,6 +259,7 @@ func (s *Storage) GetContact(peerID router.PeerID) (*Contact, error) {
 	contact.AddedAt = time.Unix(addedAt, 0)
 	contact.LastSeen = time.Unix(lastSeen, 0)
 	contact.IsBlocked = isBlocked != 0
+	contact.NotificationsBlocked = notificationsBlocked != 0
 
 	return &contact, nil
 }
@@ -238,7 +267,7 @@ func (s *Storage) GetContact(peerID router.PeerID) (*Contact, error) {
 // GetAllContacts возвращает все контакты
 func (s *Storage) GetAllContacts() ([]*Contact, error) {
 	rows, err := s.db.Query(`
-		SELECT peer_id, name, added_at, last_seen, is_blocked
+		SELECT peer_id, name, added_at, last_seen, is_blocked, notifications_blocked
 		FROM contacts
 		ORDER BY last_seen DESC
 	`)
@@ -252,9 +281,9 @@ func (s *Storage) GetAllContacts() ([]*Contact, error) {
 		var contact Contact
 		var hexStr string
 		var addedAt, lastSeen int64
-		var isBlocked int
+		var isBlocked, notificationsBlocked int
 
-		if err := rows.Scan(&hexStr, &contact.Name, &addedAt, &lastSeen, &isBlocked); err != nil {
+		if err := rows.Scan(&hexStr, &contact.Name, &addedAt, &lastSeen, &isBlocked, &notificationsBlocked); err != nil {
 			return nil, err
 		}
 
@@ -271,6 +300,7 @@ func (s *Storage) GetAllContacts() ([]*Contact, error) {
 		contact.AddedAt = time.Unix(addedAt, 0)
 		contact.LastSeen = time.Unix(lastSeen, 0)
 		contact.IsBlocked = isBlocked != 0
+		contact.NotificationsBlocked = notificationsBlocked != 0
 
 		contacts = append(contacts, &contact)
 	}
@@ -507,4 +537,65 @@ func (s *Storage) GetFileTransfers(peerID router.PeerID, limit int) ([]struct {
 	}
 
 	return transfers, rows.Err()
+}
+
+// SearchMessages searches for messages containing the query string
+// Returns results from all contacts, sorted by timestamp (newest first)
+func (s *Storage) SearchMessages(query string, limit int) ([]*SearchResult, error) {
+	if query == "" {
+		return nil, nil
+	}
+
+	// Use LIKE for case-insensitive search
+	// Add % wildcards for substring matching
+	searchPattern := "%" + query + "%"
+
+	rows, err := s.db.Query(`
+		SELECT
+			m.id, m.peer_id, m.content, m.timestamp, m.is_outgoing, m.is_read,
+			c.name
+		FROM messages m
+		JOIN contacts c ON m.peer_id = c.peer_id
+		WHERE m.content LIKE ? COLLATE NOCASE
+		ORDER BY m.timestamp DESC
+		LIMIT ?
+	`, searchPattern, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []*SearchResult
+	for rows.Next() {
+		var result SearchResult
+		var hexStr string
+		var timestamp int64
+		var isOutgoing, isRead int
+
+		if err := rows.Scan(
+			&result.ID, &hexStr, &result.Content,
+			&timestamp, &isOutgoing, &isRead,
+			&result.ContactName,
+		); err != nil {
+			return nil, err
+		}
+
+		// SECURITY: Validate hex decoding
+		peerIDBytes, err := hex.DecodeString(hexStr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid peer_id in database: %w", err)
+		}
+		if len(peerIDBytes) != router.PeerIDSize {
+			return nil, fmt.Errorf("invalid peer_id size in database: got %d, expected %d", len(peerIDBytes), router.PeerIDSize)
+		}
+
+		copy(result.PeerID[:], peerIDBytes)
+		result.Timestamp = time.Unix(timestamp, 0)
+		result.IsOutgoing = isOutgoing != 0
+		result.IsRead = isRead != 0
+
+		results = append(results, &result)
+	}
+
+	return results, rows.Err()
 }

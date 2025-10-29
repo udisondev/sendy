@@ -121,3 +121,25 @@ func EncryptPeerMessage(message []byte, recipientEdPub ed25519.PublicKey, sender
 	// Use EncryptMessage with pre-exchanged Curve25519 keys
 	return nil, fmt.Errorf("use EncryptMessage with pre-exchanged Curve25519 keys")
 }
+
+// SignedMessage represents a message with Ed25519 signature
+// This protects against MITM attacks on WebRTC signaling
+type SignedMessage struct {
+	Payload   []byte // Encrypted message payload
+	Signature []byte // Ed25519 signature of the payload
+}
+
+// SignMessage signs a message with Ed25519 private key
+// Returns signature bytes (64 bytes for Ed25519)
+func SignMessage(message []byte, privKey ed25519.PrivateKey) []byte {
+	return ed25519.Sign(privKey, message)
+}
+
+// VerifySignature verifies Ed25519 signature
+// pubKey is the sender's Ed25519 public key (PeerID)
+func VerifySignature(message []byte, signature []byte, pubKey ed25519.PublicKey) bool {
+	if len(signature) != ed25519.SignatureSize {
+		return false
+	}
+	return ed25519.Verify(pubKey, message, signature)
+}

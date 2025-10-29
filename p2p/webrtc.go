@@ -197,8 +197,8 @@ func (c *Connector) encryptMessageForPeer(peerID router.PeerID, payload []byte) 
 	return json.Marshal(envelope)
 }
 
-// sendKeyExchange отправляет сообщение обмена ключами (незашифрованное)
-// Это единственный тип незашифрованного сообщения который разрешен
+// sendKeyExchange отправляет сообщение обмена ключами
+// SECURITY: Подписываем KEY_EXCHANGE чтобы предотвратить MITM на первом обмене ключами
 func (c *Connector) sendKeyExchange(peerID router.PeerID) error {
 	var envelope EncryptedMessage
 	copy(envelope.SenderEncPubKey[:], (*c.encPubKey)[:])
@@ -210,14 +210,26 @@ func (c *Connector) sendKeyExchange(peerID router.PeerID) error {
 		return fmt.Errorf("marshal envelope: %w", err)
 	}
 
-	slog.Info("Sending key exchange",
+	// SECURITY: Подписываем KEY_EXCHANGE нашим Ed25519 приватным ключом
+	// Получатель проверит подпись используя наш PeerID (Ed25519 публичный ключ)
+	signature := SignMessage(envelopeJSON, c.edPrivKey)
+	signedMsg := SignedMessage{
+		Payload:   envelopeJSON,
+		Signature: signature,
+	}
+	signedMsgJSON, err := json.Marshal(signedMsg)
+	if err != nil {
+		return fmt.Errorf("marshal signed key exchange: %w", err)
+	}
+
+	slog.Info("Sending signed key exchange",
 		"peerID", hex.EncodeToString(peerID[:8])+"...",
 		"myEncKey", hex.EncodeToString(c.encPubKey[:8])+"...")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	_, err = c.cli.Send(ctx, peerID, envelopeJSON)
+	_, err = c.cli.Send(ctx, peerID, signedMsgJSON)
 	return err
 }
 
@@ -604,17 +616,35 @@ waitForPeerKey:
 		}
 		return
 	}
-	slog.Debug("Sending encrypted offer", "peerID", hex.EncodeToString(peerID[:8])+"...")
+
+	// SECURITY: Подписываем зашифрованный offer нашим Ed25519 приватным ключом
+	// Это предотвращает MITM атаки на сигнализацию
+	signature := SignMessage(encryptedOffer, c.edPrivKey)
+	signedMsg := SignedMessage{
+		Payload:   encryptedOffer,
+		Signature: signature,
+	}
+	signedMsgJSON, err := json.Marshal(signedMsg)
+	if err != nil {
+		peerConn.Close()
+		c.events <- Event{
+			Type:   EventConnectionFailed,
+			PeerID: peerID,
+			Error:  fmt.Errorf("marshal signed offer: %w", err),
+		}
+		return
+	}
+	slog.Debug("Sending signed encrypted offer", "peerID", hex.EncodeToString(peerID[:8])+"...")
 
 	// Создаем канал для ответа
 	answerChan := make(chan []byte, 1)
 	c.pendingOffers.Store(peerID, answerChan)
 
-	// Отправляем encrypted offer
+	// Отправляем signed encrypted offer
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	respCh, err := c.cli.Send(ctx, peerID, encryptedOffer)
+	respCh, err := c.cli.Send(ctx, peerID, signedMsgJSON)
 	if err != nil {
 		peerConn.Close()
 		c.pendingOffers.Delete(peerID)
@@ -838,14 +868,50 @@ func (p *Peer) Close() error {
 // handleIncoming обрабатывает входящие сообщения от router
 func (c *Connector) handleIncoming(income <-chan router.ServerMessage) {
 	for msg := range income {
-		// Расшифровываем входящее сообщение
-		slog.Debug("Received encrypted message, decrypting...",
+		slog.Debug("Received message from peer",
 			"from", hex.EncodeToString(msg.SenderID[:8])+"...")
 
 		// ВАЖНО: Проверяем был ли у нас ключ от этого пира ДО расшифровки
 		_, hadKeyBefore := c.peerEncKeys.Load(msg.SenderID)
 
-		decryptedPayload, err := c.decryptMessageFromPeer(msg.SenderID, msg.Payload)
+		// SECURITY: Все сообщения теперь подписаны (включая KEY_EXCHANGE)
+		var signedMsg SignedMessage
+		if err := json.Unmarshal(msg.Payload, &signedMsg); err != nil {
+			slog.Error("Failed to unmarshal SignedMessage",
+				"from", hex.EncodeToString(msg.SenderID[:8])+"...",
+				"error", err)
+			c.events <- Event{
+				Type:   EventError,
+				PeerID: msg.SenderID,
+				Error:  fmt.Errorf("invalid message format: %w", err),
+			}
+			continue
+		}
+
+		// SECURITY: Верифицируем Ed25519 подпись
+		slog.Debug("Verifying Ed25519 signature",
+			"from", hex.EncodeToString(msg.SenderID[:8])+"...")
+
+		senderPubKey := ed25519.PublicKey(msg.SenderID[:])
+		if !VerifySignature(signedMsg.Payload, signedMsg.Signature, senderPubKey) {
+			slog.Error("SECURITY ALERT: Invalid Ed25519 signature!",
+				"from", hex.EncodeToString(msg.SenderID[:8])+"...",
+				"payloadSize", len(signedMsg.Payload),
+				"signatureSize", len(signedMsg.Signature))
+			c.events <- Event{
+				Type:   EventError,
+				PeerID: msg.SenderID,
+				Error:  fmt.Errorf("invalid Ed25519 signature - potential MITM attack"),
+			}
+			continue
+		}
+
+		slog.Debug("Signature verified successfully",
+			"from", hex.EncodeToString(msg.SenderID[:8])+"...")
+		payloadToDecrypt := signedMsg.Payload
+
+		// Расшифровываем сообщение
+		decryptedPayload, err := c.decryptMessageFromPeer(msg.SenderID, payloadToDecrypt)
 		if err != nil {
 			c.events <- Event{
 				Type:   EventError,
@@ -920,9 +986,9 @@ func (c *Connector) handleIncoming(income <-chan router.ServerMessage) {
 			// Это answer на наш offer
 			if ch, ok := c.pendingOffers.LoadAndDelete(msg.SenderID); ok {
 				answerChan := ch.(chan []byte)
-				// Отправляем encrypted answer (будет расшифрован в connectAsync)
+				// Отправляем encrypted answer (после проверки подписи, будет расшифрован в connectAsync)
 				select {
-				case answerChan <- msg.Payload:
+				case answerChan <- payloadToDecrypt:
 				default:
 				}
 			}
@@ -1152,13 +1218,30 @@ func (c *Connector) handleIncomingOffer(peerID router.PeerID, offerJSON []byte) 
 		}
 		return
 	}
-	slog.Debug("Sending encrypted answer", "peerID", hex.EncodeToString(peerID[:8])+"...")
 
-	// Отправляем encrypted answer
+	// SECURITY: Подписываем зашифрованный answer нашим Ed25519 приватным ключом
+	signature := SignMessage(encryptedAnswer, c.edPrivKey)
+	signedMsg := SignedMessage{
+		Payload:   encryptedAnswer,
+		Signature: signature,
+	}
+	signedMsgJSON, err := json.Marshal(signedMsg)
+	if err != nil {
+		peerConn.Close()
+		c.events <- Event{
+			Type:   EventConnectionFailed,
+			PeerID: peerID,
+			Error:  fmt.Errorf("marshal signed answer: %w", err),
+		}
+		return
+	}
+	slog.Debug("Sending signed encrypted answer", "peerID", hex.EncodeToString(peerID[:8])+"...")
+
+	// Отправляем signed encrypted answer
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	respCh, err := c.cli.Send(ctx, peerID, encryptedAnswer)
+	respCh, err := c.cli.Send(ctx, peerID, signedMsgJSON)
 	if err != nil {
 		peerConn.Close()
 		c.events <- Event{

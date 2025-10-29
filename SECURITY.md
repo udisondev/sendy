@@ -50,12 +50,21 @@ encPrivKey := ed25519.PrivateKey(privkey).ToCurve25519()
 [24 bytes nonce][encrypted payload][16 bytes authentication tag]
 ```
 
-### Router Authentication
+### Router Authentication and Signaling Protection
 
+**Authentication to Router:**
 All messages to/from the router are signed with Ed25519:
 - Prevents impersonation attacks
 - Router verifies each message signature
 - Invalid signatures are rejected
+
+**WebRTC Signaling and Key Exchange Protection:**
+ALL P2P messages (KEY_EXCHANGE and SDP offers/answers) are double-protected:
+1. **Encryption:** Encrypted with NaCl/box using peer's Curve25519 public key (after initial KEY_EXCHANGE)
+2. **Signature:** Signed with sender's Ed25519 private key (PeerID)
+3. **Verification:** Recipient verifies signature before processing
+
+This prevents the router from tampering with or substituting any P2P messages, **including the initial KEY_EXCHANGE**. Since the Ed25519 public key (PeerID) is known before connection, the router cannot perform MITM attacks.
 
 **However:** Router can still see connection metadata (who connects to whom, message sizes, timing).
 
@@ -78,12 +87,16 @@ Sendy uses a Trust On First Use model similar to SSH:
 
 ## What is Protected
 
-### ✅ Encrypted
+### ✅ Encrypted and Authenticated
 
-1. **P2P Messages:** All chat messages between peers
-2. **File Transfers:** Complete file contents up to 200MB
-3. **WebRTC Signaling:** SDP offers/answers and ICE candidates sent through router
-4. **KEY_EXCHANGE:** Initial key exchange messages
+1. **P2P Messages:** All chat messages between peers (encrypted + authenticated)
+2. **File Transfers:** Complete file contents up to 200MB (encrypted + authenticated)
+3. **KEY_EXCHANGE:** Initial Curve25519 public key exchange (Ed25519 signed)
+   - Router cannot tamper with or substitute encryption keys
+   - Protects against MITM attacks from the very first message
+4. **WebRTC Signaling:** SDP offers/answers (encrypted + Ed25519 signed)
+   - Router cannot tamper with or substitute signaling messages
+   - Complete protection of connection establishment
 
 ### ❌ Not Protected (Metadata)
 
@@ -105,10 +118,12 @@ The router can observe:
    - There is no session key rotation
    - Mitigation: Protect your `~/.sendy/data/key` file carefully (permissions 0600)
 
-2. **MITM Vulnerability on First Connection**
-   - TOFU model means first key exchange is vulnerable to man-in-the-middle attack
-   - If router is compromised during first connection, it could substitute peer keys
-   - Mitigation: Verify peer IDs out-of-band for sensitive contacts
+2. **TOFU Trust Model**
+   - First connection trusts the peer's PeerID (Ed25519 public key) without verification
+   - ALL messages (including KEY_EXCHANGE) are signed, so router cannot substitute keys
+   - **However:** You must verify that you're connecting to the CORRECT PeerID
+   - If attacker tricks you into adding their PeerID instead of legitimate peer, they can MITM
+   - Mitigation: Verify peer IDs (Ed25519 public keys) out-of-band for sensitive contacts (QR code, phone call, in person)
 
 3. **Router Metadata Visibility**
    - Router sees who talks to whom and when
@@ -156,10 +171,11 @@ The router can observe:
 ✅ **Impersonation:** Cryptographic authentication prevents peer impersonation
 ✅ **Message Tampering:** Authentication tags prevent undetected modification
 ✅ **Replay Attacks:** Unique nonces prevent message replay
+✅ **Signaling Tampering:** Ed25519 signatures prevent router from modifying WebRTC signaling
 
 ### What Sendy Does NOT Protect Against
 
-❌ **First Connection MITM:** Compromised router can substitute keys initially
+❌ **PeerID Substitution:** Attacker tricks you into adding THEIR PeerID instead of legitimate peer (social engineering)
 ❌ **Private Key Theft:** Physical device access or malware can steal keys
 ❌ **Endpoint Compromise:** Malware on your device can read plaintext messages
 ❌ **Metadata Analysis:** Router sees connection patterns and timing
